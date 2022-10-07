@@ -56,78 +56,48 @@ Examples:
     $ ssh remote tail -f /var/log/apache2/access.log | ngxtop -f common
 """
 from __future__ import print_function
-import atexit
-from contextlib import aclosing, closing
-import curses
 import logging
 import os
-import sqlite3
 import time
 import sys
-import signal
-from traceback import print_tb
 
-
-import os
-import sys
-
-sys.path.append( os.path.join(os.path.dirname(__file__).replace('core/helper', ''), 'app'))
-
-for i in sys.path:
-    print(i, end='\n\n')
+sys.path.append( os.path.join(os.path.dirname(__file__), 'app'))
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "app.settings")
 import django
 from django.conf import settings
 django.setup()
-
+from core.models import RequestInfo
 try:
     import urlparse
 except ImportError:
     import urllib.parse as urlparse
 
 from docopt import docopt
-import tabulate
 
-from .config_parser import detect_log_config, detect_config_path, extract_variables, build_pattern
-from .utils import error_exit
+from config_parser import detect_log_config, detect_config_path, extract_variables, build_pattern
+from utils import error_exit
 
-
-DEFAULT_QUERIES = [
-    ('Summary:',
-     '''SELECT
-       count(1)                                    AS count,
-       avg(bytes_sent)                             AS avg_bytes_sent,
-       count(CASE WHEN status_type = 2 THEN 1 END) AS '2xx',
-       count(CASE WHEN status_type = 3 THEN 1 END) AS '3xx',
-       count(CASE WHEN status_type = 4 THEN 1 END) AS '4xx',
-       count(CASE WHEN status_type = 5 THEN 1 END) AS '5xx'
-     FROM log
-     ORDER BY %(--order-by)s DESC
-     LIMIT %(--limit)s'''),
-
-    ('Detailed:',
-     '''SELECT
-       %(--group-by)s,
-       count(1)                                    AS count,
-       avg(bytes_sent)                             AS avg_bytes_sent,
-       count(CASE WHEN status_type = 2 THEN 1 END) AS '2xx',
-       count(CASE WHEN status_type = 3 THEN 1 END) AS '3xx',
-       count(CASE WHEN status_type = 4 THEN 1 END) AS '4xx',
-       count(CASE WHEN status_type = 5 THEN 1 END) AS '5xx'
-     FROM log
-     GROUP BY %(--group-by)s
-     HAVING %(--having)s
-     ORDER BY %(--order-by)s DESC
-     LIMIT %(--limit)s''')
-]
-
-DEFAULT_FIELDS = set(['status_type', 'bytes_sent'])
+def choose_one(choices, prompt):
+    for idx, choice in enumerate(choices):
+        print('%d. %s' % (idx + 1, choice))
+    selected = None
+    if sys.version[0] == '3':
+        raw_input = input
+    while not selected or selected <= 0 or selected > len(choices):
+        selected = raw_input(prompt)
+        try:
+            selected = int(selected)
+        except ValueError:
+            selected = None
+    return choices[selected - 1]
 
 
-# ======================
-# generator utilities
-# ======================
+def error_exit(msg, status=1):
+    sys.stderr.write('Error: %s\n' % msg)
+    sys.exit(status)
+
+
 def follow(the_file):
     """
     Follow a given file and yield new lines when they are available, like `tail -f`.
@@ -164,12 +134,7 @@ def add_field(field, func, dict_sequence):
         if field not in item:
             item[field] = func(item)
         yield item
-
-
-def trace(sequence, phase=''):
-    for item in sequence:
-        logging.debug('%s:\n%s', phase, item)
-        yield item
+ 
 
 
 # ======================
@@ -208,70 +173,10 @@ def parse_log(lines, pattern):
     records = add_field('request_path', parse_request_path, records)
     return records
 
-
-# =================================
-# Records and statistic processor
-# =================================
-class SQLProcessor(object):
-    def __init__(self, report_queries, fields, index_fields=None):
-        self.begin = False
-        self.report_queries = report_queries
-        self.index_fields = index_fields if index_fields is not None else []
-        self.column_list = ','.join(fields)
-        self.holder_list = ','.join(':%s' % var for var in fields)
-        self.conn = sqlite3.connect(':memory:')
-        self.init_db()
-
-    def process(self, records):
-        self.begin = time.time()
-        insert = 'insert into log (%s) values (%s)' % (self.column_list, self.holder_list)
-        logging.info('sqlite insert: %s', insert)
-        with closing(self.conn.cursor()) as cursor:
-            for r in records:
-                cursor.execute(insert, r)
-
-    def report(self):
-        if not self.begin:
-            return ''
-        count = self.count()
-        duration = time.time() - self.begin
-        status = 'running for %.0f seconds, %d records processed: %.2f req/sec'
-        output = [status % (duration, count, count / duration)]
-        with closing(self.conn.cursor()) as cursor:
-            for query in self.report_queries:
-                if isinstance(query, tuple):
-                    label, query = query
-                else:
-                    label = ''
-                cursor.execute(query)
-                columns = (d[0] for d in cursor.description)
-                result = tabulate.tabulate(cursor.fetchall(), headers=columns, tablefmt='orgtbl', floatfmt='.3f')
-                output.append('%s\n%s' % (label, result))
-        return '\n\n'.join(output)
-
-    def init_db(self):
-        create_table = 'create table log (%s)' % self.column_list
-        with closing(self.conn.cursor()) as cursor:
-            logging.info('sqlite init: %s', create_table)
-            cursor.execute(create_table)
-            for idx, field in enumerate(self.index_fields):
-                sql = 'create index log_idx%d on log (%s)' % (idx, field)
-                logging.info('sqlite init: %s', sql)
-                cursor.execute(sql)
-
-    def count(self):
-        with closing(self.conn.cursor()) as cursor:
-            cursor.execute('select count(1) from log')
-            return cursor.fetchone()[0]
-
 def save_model(records):
-    with open('log.txt', 'a') as f:
-        f.writelines('%s\n' % str(records))
-# ===============
-# Log processing
-# ===============
-def process_log(lines, pattern, processor, arguments):
-    print(">> OK")
+    RequestInfo.objects.create(**records)
+
+def process_log(lines, pattern, arguments):
     pre_filter_exp = arguments['--pre-filter']
     if pre_filter_exp:
         lines = (line for line in lines if eval(pre_filter_exp, {}, dict(line=line)))
@@ -282,53 +187,10 @@ def process_log(lines, pattern, processor, arguments):
     if filter_exp:
         records = (r for r in records if eval(filter_exp, {}, r))
 
-    # print(next(records))
     while True:
         save_model(next(records))
-    # print(processor.report())  # this will only run when start in --no-follow mode
 
-
-def build_processor(arguments):
-    fields = arguments['<var>']
-    if arguments['print']:
-        label = ', '.join(fields) + ':'
-        selections = ', '.join(fields)
-        query = 'select %s from log group by %s' % (selections, selections)
-        report_queries = [(label, query)]
-    elif arguments['top']:
-        limit = int(arguments['--limit'])
-        report_queries = []
-        for var in fields:
-            label = 'top %s' % var
-            query = 'select %s, count(1) as count from log group by %s order by count desc limit %d' % (var, var, limit)
-            report_queries.append((label, query))
-    elif arguments['avg']:
-        label = 'average %s' % fields
-        selections = ', '.join('avg(%s)' % var for var in fields)
-        query = 'select %s from log' % selections
-        report_queries = [(label, query)]
-    elif arguments['sum']:
-        label = 'sum %s' % fields
-        selections = ', '.join('sum(%s)' % var for var in fields)
-        query = 'select %s from log' % selections
-        report_queries = [(label, query)]
-    elif arguments['query']:
-        report_queries = arguments['<query>']
-        fields = arguments['<fields>']
-    else:
-        report_queries = [(name, query % arguments) for name, query in DEFAULT_QUERIES]
-        fields = DEFAULT_FIELDS.union(set([arguments['--group-by']]))
-
-    for label, query in report_queries:
-        logging.info('query for "%s":\n %s', label, query)
-
-    processor_fields = []
-    for field in fields:
-        processor_fields.extend(field.split(','))
  
-    processor = SQLProcessor(report_queries, processor_fields)
-    return processor
-
 
 def build_source(access_log, arguments):
     # constructing log source
@@ -339,29 +201,7 @@ def build_source(access_log, arguments):
     else:
         lines = follow(access_log)
     return lines
-
-
-def setup_reporter(processor, arguments):
-    if arguments['--no-follow']:
-        return
-
-    scr = curses.initscr()
-    atexit.register(curses.endwin)
-
-    def print_report(sig, frame):
-        output = processor.report()
-        scr.erase()
-        try:
-            scr.addstr(output)
-        except curses.error:
-            pass
-        scr.refresh()
-
-    signal.signal(signal.SIGALRM, print_report)
-    interval = float(arguments['--interval'])
-    signal.setitimer(signal.ITIMER_REAL, 0.1, interval)
-
-
+ 
 def process(arguments):
     access_log = arguments['--access-log']
     log_format = arguments['--log-format']
@@ -386,18 +226,12 @@ def process(arguments):
 
     source = build_source(access_log, arguments)
     pattern = build_pattern(log_format) 
-    processor = build_processor(arguments)
-    setup_reporter(processor, arguments)
-    process_log(source, pattern, processor, arguments)
+    process_log(source, pattern, arguments)
 
 
 def main():
     
-    try:
-        args = docopt(__doc__, version='xstat 0.1')
-    except Exception as e:
-        print(e)
-
+    args = docopt(__doc__, version='xstat 0.1')
     
     log_level = logging.WARNING
     if args['--verbose']:
@@ -411,3 +245,6 @@ def main():
         process(args)
     except KeyboardInterrupt:
         sys.exit(0)
+
+if __name__ == '__main__':
+    main()

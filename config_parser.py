@@ -8,7 +8,7 @@ import subprocess
 from pyparsing import Literal, Word, ZeroOrMore, OneOrMore, Group, \
     printables, quotedString, pythonStyleComment, removeQuotes
 
-from .utils import choose_one, error_exit
+from utils import choose_one, error_exit
 
 
 REGEX_SPECIAL_CHARS = r'([\.\*\+\?\|\(\)\{\}\[\]])'
@@ -147,4 +147,3 @@ def extract_variables(log_format):
         log_format = LOG_FORMAT_COMBINED
     for match in re.findall(REGEX_LOG_FORMAT_VARIABLE, log_format):
         yield match
-
