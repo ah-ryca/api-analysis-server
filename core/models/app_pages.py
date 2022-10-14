@@ -13,7 +13,7 @@ class Page(models.Model):
 
 class API(models.Model):
     path = models.CharField(max_length=200, null=False, blank=False)
-    page = models.ForeignKey(Page, on_delete=models.DO_NOTHING, related_name='pages')
+    page = models.ForeignKey(Page, on_delete=models.DO_NOTHING, related_name='apis')
     created_at = models.DateTimeField(auto_now_add=True)
 
     version = models.IntegerField(default=1)
