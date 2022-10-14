@@ -13,24 +13,19 @@ class AppPageViewSet(ModelViewSet):
     def get_page_detail(self, request, *args, **kwargs):
         page_id = kwargs.get('page_id')
 
-        apis = [f"TRIM(request_path) LIKE  '{path}%'" for path in
+        apis = [f"TRIM(request_path) LIKE  '%{path}%'" for path in
                 Page.objects.get(pk=page_id).apis.values_list('path', flat=True)]
+        api_conditions = ' OR '.join(apis)
 
         filters = self.request.GET
         date_from = filters.get('from')
         date_to = filters.get('to')
 
-        api_conditions = ' OR '.join(apis)
-
-        print("........................")
-        print(api_conditions)
-
         sql = f"""
                 SELECT
                     1 as id,
                     created_at,
-                    SUM(success) AS success,
-                    SUM(fail) AS fail
+                    SUM(success)/{len(apis)} AS success
                 FROM
                     (
                         SELECT
