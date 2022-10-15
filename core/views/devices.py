@@ -37,12 +37,13 @@ class DevicesViewSet(ModelViewSet):
     #     serializer = DevicesInfoSerializer(data=self.get_queryset(), many=False)
     #     return Response(serializer.data)
     def get_devices(self, request, *args, **kwargs):
+        date_from, date_to = self.get_filters()
         from core.models import DeviceInfo
-        sql = """
+        sql = f"""
         select 1 as id, 
          device_type,
          count
-         from 
+         FROM 
        (     select 
             CASE
                 when device_type=1 then 'موبایل' 
@@ -53,17 +54,44 @@ class DevicesViewSet(ModelViewSet):
                 when device_type=6 then 'ناشناس' 
             end as device_type,
              count(device_type) over (partition by device_type) as count 
-             from device_info) as t1
+             from device_info 
+             inner join request_info on request_id = request_info.id
+                             WHERE
+                    request_info.request_time BETWEEN '{date_from}' AND '{date_to}'
+             ) as t1
         group by device_type, count
         """
         device_info = DeviceInfo.objects.raw(sql)
         output = []
         for device in device_info:
-            tmp = {'device': device.device_type, 'count': device.count}
+            tmp = {'name': device.device_type, 'count': device.count}
             output.append(tmp)
 
         return Response(output)
 
-    def get_device_detail(self, request, *args, **kwargs):
-        # date_from , date_to =
-        pass
+    def get_os(self, request, *args, **kwargs):
+        date_from, date_to = self.get_filters()
+        from core.models import OS
+
+        sql = f"""
+         select 1 as id,     
+         family, 
+         count
+       from
+           (   select family,
+              count(family) over (partition by family) as count
+              from device_os
+              inner join request_info on request_id = request_info.id
+                              WHERE
+                     request_info.request_time BETWEEN '{date_from}' AND '{date_to}') as t1
+                     
+         group by family, count
+         """
+
+        device_info = OS.objects.raw(sql)
+        output = []
+        for device in device_info:
+            tmp = {'name': device.family, 'count': device.count}
+            output.append(tmp)
+
+        return Response(output)

@@ -15,5 +15,7 @@ urlpatterns = [
 
     path('v1/api-stat/<str:path>', APIStatViewSet.as_view({'get': 'list'}), name='list_of_pages'),
 
-    path('v1/devices', DevicesViewSet.as_view({'get': 'get_devices'}), name='devices'),
+    path('v1/device/info', DevicesViewSet.as_view({'get': 'get_devices'}), name='devices'),
+    path('v1/os/info', DevicesViewSet.as_view({'get': 'get_os'}), name='devices'),
+    path('v1/browser/info', DevicesViewSet.as_view({'get': 'get_browser'}), name='devices'),
 ]
