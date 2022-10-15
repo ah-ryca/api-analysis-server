@@ -84,7 +84,34 @@ class DevicesViewSet(ModelViewSet):
               inner join request_info on request_id = request_info.id
                               WHERE
                      request_info.request_time BETWEEN '{date_from}' AND '{date_to}') as t1
-                     
+
+         group by family, count
+         """
+
+        device_info = OS.objects.raw(sql)
+        output = []
+        for device in device_info:
+            tmp = {'name': device.family, 'count': device.count}
+            output.append(tmp)
+
+        return Response(output)
+
+    def get_browser(self, request, *args, **kwargs):
+        date_from, date_to = self.get_filters()
+        from core.models import OS
+
+        sql = f"""
+         select 1 as id,     
+         family, 
+         count
+       from
+           (   select family,
+              count(family) over (partition by family) as count
+              from device_browser
+              inner join request_info on request_id = request_info.id
+                              WHERE
+                     request_info.request_time BETWEEN '{date_from}' AND '{date_to}') as t1
+
          group by family, count
          """
 
