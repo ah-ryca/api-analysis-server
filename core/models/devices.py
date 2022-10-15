@@ -2,7 +2,7 @@ from django.db import models
 
 __all__ = 'Browser', 'OS', 'DeviceInfo'
 
-from .helper import TYPE
+from .helper import DEVICE_TYPE
 from .request_info import RequestInfo
 
 
@@ -31,7 +31,7 @@ class DeviceInfo(models.Model):
     brand = models.CharField(max_length=50, null=True)
     family = models.CharField(max_length=50, null=True)
     model = models.CharField(max_length=50, null=True)
-    device_type = models.SmallIntegerField(default=TYPE.OTHER, choices=TYPE.choices)
+    device_type = models.SmallIntegerField(choices=DEVICE_TYPE.choices, null=True)
 
     class Meta:
         db_table = 'device_info'
